@@ -14,7 +14,7 @@ import (
 // WebRouter - handler functions from sub routed applications
 var WebRouter map[string]func(http.ResponseWriter, *http.Request, []string)
 
-// plugin related
+// clear ./modules folder, intended to be used before building
 func deleteBuiltModules() {
 	builtFiles, err := os.Open("./modules")
 	if err != nil {
@@ -34,6 +34,7 @@ func deleteBuiltModules() {
 	}
 }
 
+// step through src folders (excluding lib) and attempt to build .so files
 func buildModules() []string {
 
 	var names []string
@@ -85,6 +86,7 @@ func buildModules() []string {
 	return names
 }
 
+// check ./modules folder for existing modules instead of building them
 func getExistingModules() []string {
 	include := progArgs["include"].([]string)
 	builtFiles, err := os.Open("./modules")
@@ -115,6 +117,7 @@ func getExistingModules() []string {
 	return files
 }
 
+// load .so files in ./modules dir, optionally filtered by a config file or program arg
 func loadModules(names []string) {
 	fmt.Printf("loading %v modules...\n", len(names))
 	// initialize web handler
@@ -143,12 +146,13 @@ func loadModules(names []string) {
 				WebRouter[getName()] = handleWeb
 			}
 		}
-		//todo: check for internal handler
+		//todo: build concept of & check for internal handler
 	}
 
 	fmt.Printf("loaded %v modules\n", loaded)
 }
 
+// build args from args & config file
 func argsAndConfig() {
 	// default program options
 	progArgs = map[string]interface{}{
@@ -184,6 +188,7 @@ func argsAndConfig() {
 	}
 }
 
+// determine whether we're loading or building modules, then do it!
 func doPluginStuff() {
 	// ensure the modules folder exists since a fresh git pull won't have it
 	err := exec.Command("mkdir", "-p", "modules").Run()
@@ -207,17 +212,24 @@ func doPluginStuff() {
 func Handle(w http.ResponseWriter, r *http.Request) {
 	path := fixPath(strings.Split(r.URL.Path, "/"))
 	if len(path) == 0 {
+		// todo: enable devs to easily do *something* here, but this is primarily an application gateway
 		fmt.Fprintf(w, "home")
 	} else if path[0] == "favicon.ico" {
-		http.ServeFile(w, r, "./files/avatar.png")
+		// browsers seem to make this request automatically :)
+		// feel free to move this into ./files or serve a different file name
+		http.ServeFile(w, r, "./favicon.ico")
 	} else if handler, ok := WebRouter[path[0]]; ok {
+		// ex: if we have a subrouter called misc and the route is /misc/asdf/qwerty
+		// then pass ["asdf", "qwerty"] into the misc sub application
 		handler(w, r, path[1:])
 	} else {
+		// todo: enable devs to do something here. Maybe special root & 404 handlers
 		w.WriteHeader(http.StatusNotFound)
 		fmt.Fprintf(w, "404 or something")
 	}
 }
 
+// remove empty strings from slice
 func fixPath(path []string) []string {
 	var tmp []string
 	for _, value := range path {
@@ -235,7 +247,6 @@ func main() {
 	argsAndConfig()
 	doPluginStuff()
 
-	// todo: make server killable via web request
 	http.HandleFunc("/", Handle)
 
 	port := "2000"
