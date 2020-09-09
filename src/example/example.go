@@ -42,8 +42,14 @@ func init() {
 		http.ServeFile(w, r, "./files/misc/"+r.URL.Path[11:])
 	})
 
+	// server particular file from exact without using file/* strategy
+	router.Register("/foo", "GET", func(w http.ResponseWriter, r *http.Request, args map[string]interface{}) {
+		http.ServeFile(w, r, "./files/misc/hello.html")
+	})
+
 	// www.site.com/misc/code/200
 	// shows a route that takes args only - expected to return a json-like interface to be returned to client as json
+	// note: needs to be a real status code or the server will throw errors
 	router.Register("/code/:code", "*", func(args map[string]interface{}) interface{} {
 		// get route arguments
 		route := args["route"].(map[string]string)
@@ -64,6 +70,14 @@ func init() {
 		return map[string]interface{}{
 			"HTTPStatusCode": code,
 			"status":         msg,
+		}
+	})
+
+	// 404 route -- register last :)
+	router.Register("*", "*", func(args map[string]interface{}) interface{} {
+		return map[string]interface{}{
+			"HTTPStatusCode": 404,
+			"something":      "This is a 404 message as json instead of a file",
 		}
 	})
 }

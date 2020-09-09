@@ -51,7 +51,7 @@ func buildModules() []string {
 		panic(err)
 	}
 
-	// since a default is provided, this should always succeed
+	// folder names from your src dir
 	include := progArgs["include"].([]string)
 
 	for _, name := range list {
@@ -158,6 +158,7 @@ func argsAndConfig() {
 	progArgs = map[string]interface{}{
 		"build":   false,
 		"include": []string{},
+		"port":    2020,
 	}
 
 	// get config file
@@ -177,6 +178,12 @@ func argsAndConfig() {
 			for _, f := range files {
 				progArgs["include"] = append(progArgs["include"].([]string), f.(string))
 			}
+		}
+
+		// check for port
+		portNum, ok := obj["port"].(float64)
+		if ok {
+			progArgs["port"] = fmt.Sprintf("%v", portNum)
 		}
 	}
 
@@ -249,7 +256,7 @@ func main() {
 
 	http.HandleFunc("/", Handle)
 
-	port := "2000"
+	port := progArgs["port"].(string)
 	fmt.Println("serving on port:", port)
 
 	http.ListenAndServe(":"+port, nil)
