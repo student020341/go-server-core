@@ -1,4 +1,4 @@
-package main
+package TWTServer
 
 import (
 	"encoding/json"
@@ -238,17 +238,6 @@ func (st *ServerThing) Handle(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		fmt.Fprintf(w, "404 or something")
 	}
-}
-
-// remove empty strings from slice
-func fixPath(path []string) []string {
-	var tmp []string
-	for _, value := range path {
-		if value != "" {
-			tmp = append(tmp, value)
-		}
-	}
-	return tmp
 }
 
 func (st *ServerThing) Start() {

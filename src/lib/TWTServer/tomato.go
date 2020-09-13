@@ -1,7 +1,7 @@
 /*
 	A simple router to help my plugin application gateway experiment
 */
-package RouterModule
+package TWTServer
 
 import (
 	"encoding/json"
@@ -21,17 +21,6 @@ type SubRoute struct {
 // a collection of routes for the given application
 type SubRouter struct {
 	Routes []SubRoute
-}
-
-// remove empty strings from slice
-func fixPath(path []string) []string {
-	var tmp []string
-	for _, value := range path {
-		if value != "" {
-			tmp = append(tmp, value)
-		}
-	}
-	return tmp
 }
 
 // build args["route"] for given subroute.

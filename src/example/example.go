@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/student020341/go-server-core/src/lib/RouterModule"
+	"github.com/student020341/go-server-core/src/lib/TWTServer"
 )
 
 /*
@@ -29,7 +29,7 @@ func GetName() string {
 }
 
 // router included with server core
-var router RouterModule.SubRouter
+var router TWTServer.SubRouter
 
 // use init to setup your router
 func init() {
