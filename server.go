@@ -11,11 +11,15 @@ import (
 	"strings"
 )
 
-// WebRouter - handler functions from sub routed applications
-var WebRouter map[string]func(http.ResponseWriter, *http.Request, []string)
+// Type to receive all of the functions here
+type ServerThing struct {
+	// handler functions from sub routed applications
+	WebRouter map[string]func(http.ResponseWriter, *http.Request, []string)
+	ProgArgs  map[string]interface{}
+}
 
 // clear ./modules folder, intended to be used before building
-func deleteBuiltModules() {
+func (st *ServerThing) DeleteBuiltModules() {
 	builtFiles, err := os.Open("./modules")
 	if err != nil {
 		panic(err)
@@ -35,7 +39,7 @@ func deleteBuiltModules() {
 }
 
 // step through src folders (excluding lib) and attempt to build .so files
-func buildModules() []string {
+func (st *ServerThing) BuildModules() []string {
 
 	var names []string
 	fmt.Println("discovering plugins...")
@@ -52,7 +56,7 @@ func buildModules() []string {
 	}
 
 	// folder names from your src dir
-	include := progArgs["include"].([]string)
+	include := st.ProgArgs["include"].([]string)
 
 	for _, name := range list {
 		// skip lib
@@ -87,8 +91,8 @@ func buildModules() []string {
 }
 
 // check ./modules folder for existing modules instead of building them
-func getExistingModules() []string {
-	include := progArgs["include"].([]string)
+func (st *ServerThing) GetExistingModules() []string {
+	include := st.ProgArgs["include"].([]string)
 	builtFiles, err := os.Open("./modules")
 	if err != nil {
 		panic(err)
@@ -118,10 +122,10 @@ func getExistingModules() []string {
 }
 
 // load .so files in ./modules dir, optionally filtered by a config file or program arg
-func loadModules(names []string) {
+func (st *ServerThing) LoadModules(names []string) {
 	fmt.Printf("loading %v modules...\n", len(names))
 	// initialize web handler
-	WebRouter = make(map[string]func(http.ResponseWriter, *http.Request, []string))
+	st.WebRouter = make(map[string]func(http.ResponseWriter, *http.Request, []string))
 	// load plugins
 	loaded := 0
 	for _, name := range names {
@@ -143,7 +147,7 @@ func loadModules(names []string) {
 			handleWeb, ok := exportedWebHandler.(func(http.ResponseWriter, *http.Request, []string))
 			if ok {
 				loaded++
-				WebRouter[getName()] = handleWeb
+				st.WebRouter[getName()] = handleWeb
 			}
 		}
 		//todo: build concept of & check for internal handler
@@ -153,9 +157,9 @@ func loadModules(names []string) {
 }
 
 // build args from args & config file
-func argsAndConfig() {
+func (st *ServerThing) ArgsAndConfig() {
 	// default program options
-	progArgs = map[string]interface{}{
+	st.ProgArgs = map[string]interface{}{
 		"build":   false,
 		"include": []string{},
 		"port":    2020,
@@ -176,27 +180,27 @@ func argsAndConfig() {
 		files, ok := obj["include"].([]interface{})
 		if ok {
 			for _, f := range files {
-				progArgs["include"] = append(progArgs["include"].([]string), f.(string))
+				st.ProgArgs["include"] = append(st.ProgArgs["include"].([]string), f.(string))
 			}
 		}
 
 		// check for port
 		portNum, ok := obj["port"].(float64)
 		if ok {
-			progArgs["port"] = fmt.Sprintf("%v", portNum)
+			st.ProgArgs["port"] = fmt.Sprintf("%v", portNum)
 		}
 	}
 
 	// get program args second, override configs
 	for _, arg := range os.Args {
 		if arg == "--build" {
-			progArgs["build"] = true
+			st.ProgArgs["build"] = true
 		}
 	}
 }
 
 // determine whether we're loading or building modules, then do it!
-func doPluginStuff() {
+func (st *ServerThing) DoPluginStuff() {
 	// ensure the modules folder exists since a fresh git pull won't have it
 	err := exec.Command("mkdir", "-p", "modules").Run()
 	if err != nil {
@@ -205,18 +209,18 @@ func doPluginStuff() {
 
 	// have --build flag
 	var files []string
-	if progArgs["build"].(bool) {
-		deleteBuiltModules()
-		files = buildModules()
+	if st.ProgArgs["build"].(bool) {
+		st.DeleteBuiltModules()
+		files = st.BuildModules()
 	} else {
-		files = getExistingModules()
+		files = st.GetExistingModules()
 	}
 
-	loadModules(files)
+	st.LoadModules(files)
 }
 
 // Handle - main server handler
-func Handle(w http.ResponseWriter, r *http.Request) {
+func (st *ServerThing) Handle(w http.ResponseWriter, r *http.Request) {
 	path := fixPath(strings.Split(r.URL.Path, "/"))
 	if len(path) == 0 {
 		// todo: enable devs to easily do *something* here, but this is primarily an application gateway
@@ -225,7 +229,7 @@ func Handle(w http.ResponseWriter, r *http.Request) {
 		// browsers seem to make this request automatically :)
 		// feel free to move this into ./files or serve a different file name
 		http.ServeFile(w, r, "./favicon.ico")
-	} else if handler, ok := WebRouter[path[0]]; ok {
+	} else if handler, ok := st.WebRouter[path[0]]; ok {
 		// ex: if we have a subrouter called misc and the route is /misc/asdf/qwerty
 		// then pass ["asdf", "qwerty"] into the misc sub application
 		handler(w, r, path[1:])
@@ -247,16 +251,13 @@ func fixPath(path []string) []string {
 	return tmp
 }
 
-var progArgs map[string]interface{}
+func (st *ServerThing) Start() {
+	st.ArgsAndConfig()
+	st.DoPluginStuff()
 
-func main() {
+	http.HandleFunc("/", st.Handle)
 
-	argsAndConfig()
-	doPluginStuff()
-
-	http.HandleFunc("/", Handle)
-
-	port := progArgs["port"].(string)
+	port := st.ProgArgs["port"].(string)
 	fmt.Println("serving on port:", port)
 
 	http.ListenAndServe(":"+port, nil)
