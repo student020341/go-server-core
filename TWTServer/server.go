@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"plugin"
+	"strconv"
 	"strings"
 )
 
@@ -15,7 +16,11 @@ import (
 type ServerThing struct {
 	// handler functions from sub routed applications
 	WebRouter map[string]func(http.ResponseWriter, *http.Request, []string)
-	ProgArgs  map[string]interface{}
+	ProgArgs  struct {
+		Build   bool     `json:"build"`
+		Port    int      `json:"port"`
+		Include []string `json:"include"`
+	}
 }
 
 // clear ./modules folder, intended to be used before building
@@ -56,17 +61,15 @@ func (st *ServerThing) BuildModules() []string {
 	}
 
 	// folder names from your src dir
-	include := st.ProgArgs["include"].([]string)
-
 	for _, name := range list {
 		// skip lib
 		if name == "lib" {
 			continue
 		}
 		// check for exclusion
-		if len(include) > 0 {
+		if len(st.ProgArgs.Include) > 0 {
 			skip := true
-			for _, file := range include {
+			for _, file := range st.ProgArgs.Include {
 				if file == name {
 					skip = false
 					break
@@ -92,7 +95,6 @@ func (st *ServerThing) BuildModules() []string {
 
 // check ./modules folder for existing modules instead of building them
 func (st *ServerThing) GetExistingModules() []string {
-	include := st.ProgArgs["include"].([]string)
 	builtFiles, err := os.Open("./modules")
 	if err != nil {
 		panic(err)
@@ -105,9 +107,9 @@ func (st *ServerThing) GetExistingModules() []string {
 	}
 
 	var files []string
-	if len(include) > 0 {
+	if len(st.ProgArgs.Include) > 0 {
 		for _, file := range list {
-			for _, inc := range include {
+			for _, inc := range st.ProgArgs.Include {
 				if file == (inc + ".so") {
 					files = append(files, file)
 					break
@@ -130,6 +132,10 @@ func (st *ServerThing) LoadModules(names []string) {
 	loaded := 0
 	for _, name := range names {
 		mod, err := plugin.Open("./modules/" + name)
+		if err != nil {
+			fmt.Printf("failed to open %s\n", name)
+			continue
+		}
 		// lookup exported router module name
 		exportedGetName, err := mod.Lookup("GetName")
 		if err != nil {
@@ -159,42 +165,34 @@ func (st *ServerThing) LoadModules(names []string) {
 // build args from args & config file
 func (st *ServerThing) ArgsAndConfig() {
 	// default program options
-	st.ProgArgs = map[string]interface{}{
-		"build":   false,
-		"include": []string{},
-		"port":    2020,
-	}
+	st.ProgArgs.Build = false
+	st.ProgArgs.Include = []string{}
+	st.ProgArgs.Port = 2000
 
 	// get config file
 	configRaw, err := ioutil.ReadFile("config.json")
 	if err == nil {
-		// config file exists
-		var obj map[string]interface{}
-		err = json.Unmarshal(configRaw, &obj)
-		// invalid config file?
+		err = json.Unmarshal(configRaw, &st.ProgArgs)
 		if err != nil {
 			panic(err)
 		}
-
-		// check for files to include
-		files, ok := obj["include"].([]interface{})
-		if ok {
-			for _, f := range files {
-				st.ProgArgs["include"] = append(st.ProgArgs["include"].([]string), f.(string))
-			}
-		}
-
-		// check for port
-		portNum, ok := obj["port"].(float64)
-		if ok {
-			st.ProgArgs["port"] = fmt.Sprintf("%v", portNum)
-		}
 	}
 
-	// get program args second, override configs
-	for _, arg := range os.Args {
+	// override config with args
+	for i, arg := range os.Args {
 		if arg == "--build" {
-			st.ProgArgs["build"] = true
+			st.ProgArgs.Build = true
+		}
+		if arg == "--port" && i+1 < len(os.Args) {
+			portInt, err := strconv.Atoi(os.Args[i+1])
+			if err != nil {
+				panic(err)
+			}
+			st.ProgArgs.Port = portInt
+		}
+		// get include as comma separated list
+		if arg == "--include" && i+1 < len(os.Args) {
+			st.ProgArgs.Include = strings.Split(os.Args[i+1], ",")
 		}
 	}
 }
@@ -209,7 +207,7 @@ func (st *ServerThing) DoPluginStuff() {
 
 	// have --build flag
 	var files []string
-	if st.ProgArgs["build"].(bool) {
+	if st.ProgArgs.Build {
 		st.DeleteBuiltModules()
 		files = st.BuildModules()
 	} else {
@@ -245,9 +243,6 @@ func (st *ServerThing) Start() {
 	st.DoPluginStuff()
 
 	http.HandleFunc("/", st.Handle)
-
-	port := st.ProgArgs["port"].(string)
-	fmt.Println("serving on port:", port)
-
-	http.ListenAndServe(":"+port, nil)
+	fmt.Println("serving on port:", st.ProgArgs.Port)
+	http.ListenAndServe(fmt.Sprintf(":%d", st.ProgArgs.Port), nil)
 }

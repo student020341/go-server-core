@@ -1,3 +1,3 @@
 module github.com/student020341/go-server-core
 
-go 1.15
+go 1.17
