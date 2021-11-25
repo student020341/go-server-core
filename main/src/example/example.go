@@ -9,24 +9,7 @@ import (
 	"github.com/student020341/go-server-core/TWTServer"
 )
 
-/*
-	HandleWeb is expected to be implemented by every plugin
-	void function to respond directly to the client
-	most can be handled by the included router class's Handle method.
-	path is the remaining path after the application name is removed,
-	ex: www.site/com/misc/hello will be ["hello"]
-*/
-
-func HandleWeb(w http.ResponseWriter, r *http.Request, path []string) {
-
-	router.Handle(w, r, path)
-}
-
-// GetName is expected to be implemented by every plugin. This is the root of your sub application.
-// visiting www.site.com/{GetName()} will enter this plugin's HandleWeb function
-func GetName() string {
-	return "misc"
-}
+var Foo ExamplePlugin
 
 // router included with server core
 var router TWTServer.SubRouter

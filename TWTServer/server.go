@@ -7,19 +7,46 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"plugin"
 	"strconv"
 	"strings"
 )
+
+// Interface for plugins to implement. Every plugin must export a variable that implements STPlugin.
+// The default plugin name will be "TWTPlugin" but can be renamed with the config "plugin-variable".
+type STPlugin interface {
+	/*
+		void function that writes a response to the client. In most cases this can be handled by SubRouter.Handle.
+
+		If your website is www.site.com, your plugin is "misc" and you register a route of "/hello",
+		when you visit www.site.com/misc/hello your plugin "misc" will be passed a path of ["hello"].
+	*/
+	HandleWeb(http.ResponseWriter, *http.Request, []string)
+
+	/*
+		returns the name of your plugin. If it returns "misc" and your host is www.site.com,
+		your plugin will be available at www.site.com/misc.
+	*/
+	GetName() string
+
+	/*
+		a path to your projects files in the system. This path will be sym linked
+		in the gateway so it can read/serve these files without making copies. This can either be
+		an absolute path or a path relative from the working directory of the server
+	*/
+	GetFilesDir() string
+}
 
 // Type to receive all of the functions here
 type ServerThing struct {
 	// handler functions from sub routed applications
 	WebRouter map[string]func(http.ResponseWriter, *http.Request, []string)
 	ProgArgs  struct {
-		Build   bool     `json:"build"`
-		Port    int      `json:"port"`
-		Include []string `json:"include"`
+		Build          bool     `json:"build"`
+		Port           int      `json:"port"`
+		Include        []string `json:"include"`
+		PluginVariable string   `json:"plugin-variable"`
 	}
 }
 
@@ -39,6 +66,27 @@ func (st *ServerThing) DeleteBuiltModules() {
 		err = os.Remove("./modules/" + name)
 		if err != nil {
 			fmt.Println("error removing file:", err)
+		}
+	}
+}
+
+// clear ./files folder
+func (st *ServerThing) DeleteLinkedFiles() {
+	files, err := os.Open("./files")
+	if err != nil {
+		panic(err)
+	}
+	defer files.Close()
+
+	list, err := files.Readdirnames(0)
+	if err != nil {
+		panic(err)
+	}
+
+	for _, name := range list {
+		err = os.Remove("./files/" + name)
+		if err != nil {
+			fmt.Printf("error removing file: %s\n", name)
 		}
 	}
 }
@@ -136,30 +184,49 @@ func (st *ServerThing) LoadModules(names []string) {
 			fmt.Printf("failed to open %s\n", name)
 			continue
 		}
-		// lookup exported router module name
-		exportedGetName, err := mod.Lookup("GetName")
+
+		// get STPlugin
+		exportedSTPluginVar, err := mod.Lookup(st.ProgArgs.PluginVariable)
 		if err != nil {
-			fmt.Printf("module '%s' did not provide a name", name)
+			fmt.Printf("module %s did not provide an STPlugin (expected to find %s)\n", name, st.ProgArgs.PluginVariable)
 			continue
 		}
-		getName, ok := exportedGetName.(func() string)
+		pluginInterface, ok := exportedSTPluginVar.(STPlugin)
 		if !ok {
-			fmt.Printf("GetName failed for module '%s'", name)
+			fmt.Printf("module %s->%s does not correctly implement STPlugin interface\n", name, st.ProgArgs.PluginVariable)
 			continue
 		}
-		// check for web handler
-		exportedWebHandler, err := mod.Lookup("HandleWeb")
-		if err == nil {
-			handleWeb, ok := exportedWebHandler.(func(http.ResponseWriter, *http.Request, []string))
-			if ok {
-				loaded++
-				st.WebRouter[getName()] = handleWeb
-			}
+		st.WebRouter[pluginInterface.GetName()] = pluginInterface.HandleWeb
+		loaded++
+
+		if st.ProgArgs.Build {
+			// symlink files
+			linkFiles(pluginInterface.GetName(), pluginInterface.GetFilesDir())
 		}
-		//todo: build concept of & check for internal handler
+
+		//todo: build concept of internal handler
 	}
 
 	fmt.Printf("loaded %v modules\n", loaded)
+}
+
+// create symlinks to program files
+func linkFiles(name string, loc string) {
+	if len(loc) == 0 {
+		return
+	}
+
+	// get location as absolute path
+	filesPath, err := filepath.Abs(loc)
+	if err != nil {
+		panic(err)
+	}
+
+	// link files as ./files/appname/*
+	err = os.Symlink(filesPath, fmt.Sprintf("./files/%s", name))
+	if err != nil {
+		panic(err)
+	}
 }
 
 // build args from args & config file
@@ -168,6 +235,7 @@ func (st *ServerThing) ArgsAndConfig() {
 	st.ProgArgs.Build = false
 	st.ProgArgs.Include = []string{}
 	st.ProgArgs.Port = 2000
+	st.ProgArgs.PluginVariable = "TWTPlugin"
 
 	// get config file
 	configRaw, err := ioutil.ReadFile("config.json")
@@ -180,10 +248,12 @@ func (st *ServerThing) ArgsAndConfig() {
 
 	// override config with args
 	for i, arg := range os.Args {
+		haveNextArg := i+1 < len(os.Args)
+
 		if arg == "--build" {
 			st.ProgArgs.Build = true
 		}
-		if arg == "--port" && i+1 < len(os.Args) {
+		if arg == "--port" && haveNextArg {
 			portInt, err := strconv.Atoi(os.Args[i+1])
 			if err != nil {
 				panic(err)
@@ -191,16 +261,24 @@ func (st *ServerThing) ArgsAndConfig() {
 			st.ProgArgs.Port = portInt
 		}
 		// get include as comma separated list
-		if arg == "--include" && i+1 < len(os.Args) {
+		if arg == "--include" && haveNextArg {
 			st.ProgArgs.Include = strings.Split(os.Args[i+1], ",")
+		}
+		// note that the specified variable should begin with a capital letter to be exported
+		if arg == "--plugin-variable" && haveNextArg {
+			st.ProgArgs.PluginVariable = os.Args[i+1]
 		}
 	}
 }
 
 // determine whether we're loading or building modules, then do it!
 func (st *ServerThing) DoPluginStuff() {
-	// ensure the modules folder exists since a fresh git pull won't have it
+	// ensure the modules and files folder exists since a fresh git pull won't have it
 	err := exec.Command("mkdir", "-p", "modules").Run()
+	if err != nil {
+		panic(err)
+	}
+	err = exec.Command("mkdir", "-p", "files").Run()
 	if err != nil {
 		panic(err)
 	}
@@ -210,6 +288,7 @@ func (st *ServerThing) DoPluginStuff() {
 	if st.ProgArgs.Build {
 		st.DeleteBuiltModules()
 		files = st.BuildModules()
+		st.DeleteLinkedFiles()
 	} else {
 		files = st.GetExistingModules()
 	}

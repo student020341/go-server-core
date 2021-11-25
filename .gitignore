@@ -1,3 +1,4 @@
 go-server-core
 main/main
-modules/**
+main/modules/
+main/files/
