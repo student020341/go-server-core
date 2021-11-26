@@ -37,9 +37,8 @@ type ServerThing struct {
 	// handler functions from sub routed applications
 	WebRouter map[string]func(http.ResponseWriter, *http.Request, []string)
 	ProgArgs  struct {
-		Build          bool `json:"build"`
-		Port           int  `json:"port"`
-		Include        []string
+		Build          bool              `json:"build"`
+		Port           int               `json:"port"`
 		PluginVariable string            `json:"plugin-variable"`
 		Apps           map[string]string `json:"apps"`
 	}
@@ -145,9 +144,9 @@ func (st *ServerThing) GetExistingModules() []string {
 	}
 
 	var files []string
-	if len(st.ProgArgs.Include) > 0 {
+	if len(st.ProgArgs.Apps) > 0 {
 		for _, file := range list {
-			for _, inc := range st.ProgArgs.Include {
+			for inc := range st.ProgArgs.Apps {
 				if file == (inc + ".so") {
 					files = append(files, file)
 					break
@@ -237,7 +236,6 @@ func linkFiles(name string, loc string) {
 func (st *ServerThing) ArgsAndConfig() {
 	// default program options
 	st.ProgArgs.Build = false
-	st.ProgArgs.Include = []string{}
 	st.ProgArgs.Port = 2000
 	st.ProgArgs.PluginVariable = "TWTPlugin"
 
@@ -263,10 +261,6 @@ func (st *ServerThing) ArgsAndConfig() {
 				panic(err)
 			}
 			st.ProgArgs.Port = portInt
-		}
-		// get include as comma separated list
-		if arg == "--include" && haveNextArg {
-			st.ProgArgs.Include = strings.Split(os.Args[i+1], ",")
 		}
 		// note that the specified variable should begin with a capital letter to be exported
 		if arg == "--plugin-variable" && haveNextArg {
