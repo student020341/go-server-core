@@ -99,12 +99,29 @@ func (st *ServerThing) BuildModules() []string {
 
 	for name, source := range st.ProgArgs.Apps {
 		fmt.Printf("building %s...\n", name)
+		// link/copy for build - this probably isn't supposed to work
+		sourcePath, err := filepath.Abs(source + "/src")
+		if err != nil {
+			panic(err)
+		}
+
+		err = os.Symlink(sourcePath, fmt.Sprintf("./tmp-build/%s", name))
+		if err != nil {
+			panic(err)
+		}
+
 		// build plugin
-		err := exec.Command("go", "build", "-o", "./modules/"+name+".so", "-buildmode=plugin", source+"/src").Run()
+		err = exec.Command("go", "build", "-o", "./modules/"+name+".so", "-buildmode=plugin", "./tmp-build/"+name).Run()
 		if err != nil {
 			panic(err)
 		} else {
 			names = append(names, name+".so")
+		}
+
+		// delete build link
+		err = os.Remove("./tmp-build/" + name)
+		if err != nil {
+			panic(err)
 		}
 
 		// create file links
@@ -266,6 +283,10 @@ func (st *ServerThing) DoPluginStuff() {
 		panic(err)
 	}
 	err = exec.Command("mkdir", "-p", "files").Run()
+	if err != nil {
+		panic(err)
+	}
+	err = exec.Command("mkdir", "-p", "tmp-build").Run()
 	if err != nil {
 		panic(err)
 	}

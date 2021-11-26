@@ -2,3 +2,4 @@ go-server-core
 main/main
 main/modules/
 main/files/
+main/tmp-build/
