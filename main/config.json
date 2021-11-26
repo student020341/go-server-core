@@ -1,5 +1,7 @@
 {
-    "include": ["example"],
-    "port": 2020,
-    "plugin-variable": "Foo"
+    "port": 2003,
+    "plugin-variable": "Foo",
+    "apps": {
+        "example": "./example-app"
+    }
 }

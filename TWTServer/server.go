@@ -3,6 +3,7 @@ package TWTServer
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -25,17 +26,10 @@ type STPlugin interface {
 	HandleWeb(http.ResponseWriter, *http.Request, []string)
 
 	/*
-		returns the name of your plugin. If it returns "misc" and your host is www.site.com,
-		your plugin will be available at www.site.com/misc.
+		void function that will receive config information from the gateway, like what name the application is being served as
+		or what directory the files exist in.
 	*/
-	GetName() string
-
-	/*
-		a path to your projects files in the system. This path will be sym linked
-		in the gateway so it can read/serve these files without making copies. This can either be
-		an absolute path or a path relative from the working directory of the server
-	*/
-	GetFilesDir() string
+	ReceiveInfo(name string, fileDir string)
 }
 
 // Type to receive all of the functions here
@@ -43,10 +37,11 @@ type ServerThing struct {
 	// handler functions from sub routed applications
 	WebRouter map[string]func(http.ResponseWriter, *http.Request, []string)
 	ProgArgs  struct {
-		Build          bool     `json:"build"`
-		Port           int      `json:"port"`
-		Include        []string `json:"include"`
-		PluginVariable string   `json:"plugin-variable"`
+		Build          bool `json:"build"`
+		Port           int  `json:"port"`
+		Include        []string
+		PluginVariable string            `json:"plugin-variable"`
+		Apps           map[string]string `json:"apps"`
 	}
 }
 
@@ -91,51 +86,29 @@ func (st *ServerThing) DeleteLinkedFiles() {
 	}
 }
 
-// step through src folders (excluding lib) and attempt to build .so files
+/*
+	go through apps key of config and attempt to build projects into so files.
+	current design is that a project intended for this gateway will be
+
+	/path/to/source/
+		src/ all golang files and packages to be built
+		files/ files that the project may serve
+*/
 func (st *ServerThing) BuildModules() []string {
-
 	var names []string
-	fmt.Println("discovering plugins...")
-	// find all plugins
-	files, err := os.Open("./src")
-	if err != nil {
-		panic(err)
-	}
-	defer files.Close()
 
-	list, err := files.Readdirnames(0)
-	if err != nil {
-		panic(err)
-	}
-
-	// folder names from your src dir
-	for _, name := range list {
-		// skip lib
-		if name == "lib" {
-			continue
-		}
-		// check for exclusion
-		if len(st.ProgArgs.Include) > 0 {
-			skip := true
-			for _, file := range st.ProgArgs.Include {
-				if file == name {
-					skip = false
-					break
-				}
-			}
-			if skip {
-				continue
-			}
-		}
-
+	for name, source := range st.ProgArgs.Apps {
 		fmt.Printf("building %s...\n", name)
 		// build plugin
-		err := exec.Command("go", "build", "-o", "./modules/"+name+".so", "-buildmode=plugin", "./src/"+name).Run()
+		err := exec.Command("go", "build", "-o", "./modules/"+name+".so", "-buildmode=plugin", source+"/src").Run()
 		if err != nil {
 			panic(err)
 		} else {
 			names = append(names, name+".so")
 		}
+
+		// create file links
+		linkFiles(name, source+"/files")
 	}
 
 	return names
@@ -196,13 +169,19 @@ func (st *ServerThing) LoadModules(names []string) {
 			fmt.Printf("module %s->%s does not correctly implement STPlugin interface\n", name, st.ProgArgs.PluginVariable)
 			continue
 		}
-		st.WebRouter[pluginInterface.GetName()] = pluginInterface.HandleWeb
-		loaded++
 
-		if st.ProgArgs.Build {
-			// symlink files
-			linkFiles(pluginInterface.GetName(), pluginInterface.GetFilesDir())
+		// discard .so for name
+		trimmedName := name[:len(name)-3]
+		st.WebRouter[trimmedName] = pluginInterface.HandleWeb
+
+		// pass along info
+		filesPath, err := filepath.Abs("./files/" + trimmedName)
+		if err != nil {
+			panic(err)
 		}
+		pluginInterface.ReceiveInfo(trimmedName, filesPath)
+
+		loaded++
 
 		//todo: build concept of internal handler
 	}
@@ -212,7 +191,15 @@ func (st *ServerThing) LoadModules(names []string) {
 
 // create symlinks to program files
 func linkFiles(name string, loc string) {
-	if len(loc) == 0 {
+	// check if project has files
+	f, err := os.Open(loc)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	_, err = f.Readdirnames(1)
+	if err == io.EOF {
 		return
 	}
 
@@ -287,8 +274,8 @@ func (st *ServerThing) DoPluginStuff() {
 	var files []string
 	if st.ProgArgs.Build {
 		st.DeleteBuiltModules()
-		files = st.BuildModules()
 		st.DeleteLinkedFiles()
+		files = st.BuildModules()
 	} else {
 		files = st.GetExistingModules()
 	}

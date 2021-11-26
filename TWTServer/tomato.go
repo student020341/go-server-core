@@ -170,6 +170,9 @@ func (router *SubRouter) Handle(w http.ResponseWriter, r *http.Request, path []s
 			// generic handler that will write its own response to client
 			case func(w http.ResponseWriter, r *http.Request, args map[string]interface{}):
 				t(w, r, args)
+			//
+			default:
+				fmt.Printf("Unhandled router signature %T\n", t)
 			}
 			break
 		}
