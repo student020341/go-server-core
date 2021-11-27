@@ -20,7 +20,7 @@ func init() {
 		// will attempt to serve the given path
 		// grab the length of (/name/file/) and pass along the rest to the file path
 		// files/misc/hello.html will be included with the base repo, visit www.yoursite.com/name/file/hello.html to check it out
-		http.ServeFile(w, r, Foo.FileDir+"/"+r.URL.Path[len("/"+Foo.Name+"/file/"):])
+		http.ServeFile(w, r, Foo.FilePath(r.URL.Path, "file"))
 	})
 
 	// server particular file from exact without using file/* strategy

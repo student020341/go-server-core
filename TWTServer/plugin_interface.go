@@ -36,3 +36,7 @@ func (p *BasicPlugin) ReceiveInfo(name string, fileDir string) {
 	p.Name = name
 	p.FileDir = fileDir
 }
+
+func (p *BasicPlugin) FilePath(url string, fileRoute string) string {
+	return p.FileDir + "/" + url[len("/"+p.Name+"/"+fileRoute+"/"):]
+}
