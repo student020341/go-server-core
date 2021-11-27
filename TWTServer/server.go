@@ -77,33 +77,32 @@ func (st *ServerThing) DeleteLinkedFiles() {
 */
 func (st *ServerThing) BuildModules() []string {
 	var names []string
+	initialWorkDir, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+	modulesDir := initialWorkDir + "/modules/"
 
 	for name, source := range st.ProgArgs.Apps {
 		fmt.Printf("building %s...\n", name)
-		// link/copy for build - this probably isn't supposed to work
 		sourcePath, err := filepath.Abs(source + "/src")
 		if err != nil {
 			panic(err)
 		}
 
-		err = os.Symlink(sourcePath, fmt.Sprintf("./tmp-build/%s", name))
-		if err != nil {
-			panic(err)
-		}
+		// jump into source - this will allow the project to build in a predictable way, assuming the project itself can be built
+		os.Chdir(sourcePath)
 
 		// build plugin
-		err = exec.Command("go", "build", "-o", "./modules/"+name+".so", "-buildmode=plugin", "./tmp-build/"+name).Run()
+		err = exec.Command("go", "build", "-o", modulesDir+name+".so", "-buildmode=plugin", ".").Run()
 		if err != nil {
 			panic(err)
 		} else {
 			names = append(names, name+".so")
 		}
 
-		// delete build link
-		err = os.Remove("./tmp-build/" + name)
-		if err != nil {
-			panic(err)
-		}
+		// jump back
+		os.Chdir(initialWorkDir)
 
 		// create file links
 		linkFiles(name, source+"/files")
@@ -152,7 +151,7 @@ func (st *ServerThing) LoadModules(names []string) {
 	for _, name := range names {
 		mod, err := plugin.Open("./modules/" + name)
 		if err != nil {
-			fmt.Printf("failed to open %s\n", name)
+			fmt.Printf("failed to open %s\n%+v\n", name, err)
 			continue
 		}
 
@@ -259,10 +258,6 @@ func (st *ServerThing) DoPluginStuff() {
 		panic(err)
 	}
 	err = exec.Command("mkdir", "-p", "files").Run()
-	if err != nil {
-		panic(err)
-	}
-	err = exec.Command("mkdir", "-p", "tmp-build").Run()
 	if err != nil {
 		panic(err)
 	}

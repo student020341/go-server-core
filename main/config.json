@@ -2,7 +2,6 @@
     "port": 2003,
     "plugin-variable": "Foo",
     "apps": {
-        "example": "./example-app",
-        "tag": "../../misc-projects/tag"
+        "example": "./example-app"
     }
 }
