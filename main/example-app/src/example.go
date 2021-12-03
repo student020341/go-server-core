@@ -12,6 +12,8 @@ import (
 // using basic plugin provided by TWTServer, includes subrouter
 var Foo TWTServer.BasicPlugin
 
+var subRouterTest TWTServer.SubRouter
+
 // use init to setup your router
 func init() {
 	// www.site.com/misc/file/anything.asdf
@@ -53,6 +55,18 @@ func init() {
 			"status":         msg,
 		}
 	})
+
+	// register 2 sub routes
+	subRouterTest.Register("/foo", "GET", func(w http.ResponseWriter, r *http.Request, args map[string]interface{}) {
+		fmt.Fprint(w, "hello from sub route")
+	})
+
+	subRouterTest.Register("*", "*", func(w http.ResponseWriter, r *http.Request, args map[string]interface{}) {
+		fmt.Fprint(w, "default route from sub route")
+	})
+
+	// add sub routes to main router - need to do this before * route is registered
+	Foo.Router.AddSubRoutes("sub", subRouterTest.Routes)
 
 	// 404 route -- register last :)
 	Foo.Router.Register("*", "*", func(args map[string]interface{}) interface{} {

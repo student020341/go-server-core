@@ -13,9 +13,11 @@ import (
 
 // router routes :)
 type SubRoute struct {
-	Path    []string    // ex: ["misc", "file", "thefile.png"]
-	Method  string      // ex: "GET" or "POST" or "CUSTOM" or "*"
-	Handler interface{} // handler for this route
+	Path      []string    // ex: ["misc", "file", "thefile.png"]
+	Method    string      // ex: "GET" or "POST" or "CUSTOM" or "*"
+	Handler   interface{} // handler for this route
+	GlobIndex int         // cached index of glob
+	IsDefault bool        // any router or subroute registered as *
 }
 
 // a collection of routes for the given application
@@ -94,22 +96,29 @@ func (route *SubRoute) MatchPath(path []string, method string) bool {
 		return false
 	}
 
-	// todo: should glob index be stored on the route? should other calculated properties be cached somewhere?
-	// find wildcard / glob in route
-	globIndex := -1
-	for index, value := range route.Path {
-		if value == "*" {
-			globIndex = index
-			break
-		}
-	}
-
 	// glob is at start, catch all route
-	if globIndex == 0 {
+	if route.GlobIndex == 0 {
 		return true
 	}
 
-	if len(path) != len(route.Path) && (globIndex == -1 || globIndex >= len(path)) {
+	// special case, catch undefined root route in a sub router
+	if route.IsDefault {
+		// ex sub route registered with prefix "sub" will have a default of sub *
+		// ex sub route to that one called "foo" will have a default of sub foo *
+		// and an incoming root request will be sub foo
+		haveMatch := true
+		for i := 0; i < len(route.Path)-1; i++ {
+			if route.Path[i] != path[i] {
+				haveMatch = false
+			}
+		}
+
+		if haveMatch {
+			return true
+		}
+	}
+
+	if len(path) != len(route.Path) && (route.GlobIndex == -1 || route.GlobIndex >= len(path)) {
 		// if there is a glob, the request /shirt/file/img/something.png could match /shirt/file/*
 		// can also be used to have another sub router
 		return false
@@ -135,11 +144,44 @@ func (route *SubRoute) MatchPath(path []string, method string) bool {
 
 // add route to router
 func (router *SubRouter) Register(uri string, method string, handler interface{}) {
+	pathSlice := fixPath(strings.Split(uri, "/"))
+
+	globIndex := -1
+	for index, value := range pathSlice {
+		if value == "*" {
+			globIndex = index
+			break
+		}
+	}
+
 	router.Routes = append(router.Routes, SubRoute{
-		Path:    fixPath(strings.Split(uri, "/")),
-		Method:  method,
-		Handler: handler,
+		Path:      pathSlice,
+		Method:    method,
+		Handler:   handler,
+		GlobIndex: globIndex,
+		IsDefault: globIndex == 0,
 	})
+}
+
+// prefix a collection of SubRoutes
+func (router *SubRouter) AddSubRoutes(prefix string, routes []SubRoute) {
+	prefixed := make([]SubRoute, len(routes))
+	for i, v := range routes {
+		// shift existing globs up by 1
+		adjustedGlobIndex := v.GlobIndex
+		if v.GlobIndex != -1 {
+			adjustedGlobIndex += 1
+		}
+		prefixed[i] = SubRoute{
+			Path:      append([]string{prefix}, v.Path...),
+			Method:    v.Method,
+			Handler:   v.Handler,
+			GlobIndex: adjustedGlobIndex,
+			IsDefault: v.IsDefault, // sub routes registered as * will still be a default route once that sub route is entered
+		}
+	}
+
+	router.Routes = append(router.Routes, prefixed...)
 }
 
 // default handler for application plugin's HandleWeb
